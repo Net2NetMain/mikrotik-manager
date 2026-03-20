@@ -225,6 +225,7 @@ mono{font-family:'Courier New',monospace;font-size:12px}
   </div>
   <div class="spacer"></div>
   <button class="tb-btn" id="refresh-btn" style="display:none" onclick="refreshUsers()">↺ Refresh</button>
+  <button class="tb-btn" onclick="toggleDebug()" style="color:#555">Debug</button>
   <button class="tb-btn danger" id="disconnect-btn" style="display:none" onclick="doDisconnect()">Disconnect</button>
 </div>
 
@@ -393,6 +394,16 @@ mono{font-family:'Courier New',monospace;font-size:12px}
       </div>
     </div>
   </div>
+</div>
+
+<!-- Debug panel -->
+<div id="debug-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;height:200px;background:#0a0a09;border-top:.5px solid #333;z-index:999;font-family:monospace;font-size:11px">
+  <div style="display:flex;align-items:center;padding:4px 10px;background:#111;border-bottom:.5px solid #333;gap:8px">
+    <span style="color:#888">Debug console</span>
+    <button onclick="document.getElementById('debug-log').innerHTML=''" style="font-size:10px;padding:1px 6px;background:#222;border:.5px solid #444;color:#888;cursor:pointer;border-radius:3px">Clear</button>
+    <button onclick="document.getElementById('debug-panel').style.display='none'" style="font-size:10px;padding:1px 6px;background:#222;border:.5px solid #444;color:#888;cursor:pointer;border-radius:3px;margin-left:auto">✕</button>
+  </div>
+  <div id="debug-log" style="overflow-y:auto;height:168px;padding:6px 10px;color:#9a9"></div>
 </div>
 
 <!-- User add/edit modal -->
@@ -575,9 +586,11 @@ async function doConnect() {
   document.getElementById('conn-err').classList.remove('show')
   if (!host||!username){showConnErr('Host and username are required');return}
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Connecting…'
+  dbg(`Connecting to ${host}:${port} as ${username}...`)
   const res=await window.api.connect({host,port,username,password})
   btn.disabled=false;btn.textContent='Connect'
-  if (!res.ok){showConnErr(res.error||'Connection failed');return}
+  if (!res.ok){dbg('Connect failed: '+res.error,'error');showConnErr(res.error||'Connection failed');return}
+  dbg('Connected ✓','info')
 
   if (saveIt) {
     const routers = getRouters()
@@ -618,24 +631,30 @@ document.getElementById('c-pass').addEventListener('keydown',e=>{if(e.key==='Ent
 
 // ── Dashboard ─────────────────────────────────────────────
 async function loadDashboard() {
+  dbg('loadDashboard() called')
   document.getElementById('dash-grid').innerHTML='<div class="dash-loading" style="grid-column:1/-1"><span class="spinner"></span> Loading dashboard…</div>'
   document.getElementById('dash-stats').innerHTML=''
 
-  // Sequential — node-routeros can only handle one command at a time
   try {
+    dbg('Fetching active sessions...')
     const sessRes = await window.api.getSessions()
+    dbg(`Sessions: ok=${sessRes.ok} count=${sessRes.sessions?.length} err=${sessRes.error||'none'}`, sessRes.ok?'data':'error')
     if (sessRes.ok) {
       sessions = sessRes.sessions
       document.getElementById('tab-sess-count').textContent = sessions.length
     }
-  } catch(e) {}
+  } catch(e) { dbg('getSessions threw: '+e.message,'error') }
 
   try {
+    dbg('Fetching session history (limit 200)...')
     const histRes = await window.api.getSessionHistory({ limit: 200 })
+    dbg(`History: ok=${histRes.ok} count=${histRes.history?.length} err=${histRes.error||'none'}`, histRes.ok?'data':'error')
     if (histRes.ok) history = histRes.history
-  } catch(e) { history = [] }
+  } catch(e) { dbg('getSessionHistory threw: '+e.message,'error'); history = [] }
 
+  dbg('Rendering dashboard...')
   renderDashboard()
+  dbg('loadDashboard() complete ✓')
 }
 
 function fmtBytes(b) {
@@ -728,17 +747,49 @@ function renderDashboard() {
   }, 50)
 }
 
+// ── Debug ──────────────────────────────────────────────────
+function dbg(msg, type='info') {
+  const log = document.getElementById('debug-log')
+  if (!log) return
+  const colors = { info:'#9a9', error:'#f88', warn:'#fa8', data:'#8af' }
+  const time = new Date().toLocaleTimeString()
+  const div = document.createElement('div')
+  div.style.cssText = `color:${colors[type]||'#9a9'};margin-bottom:2px;border-bottom:.5px solid #1a1a1a;padding-bottom:2px`
+  div.textContent = `[${time}] ${msg}`
+  log.appendChild(div)
+  log.scrollTop = log.scrollHeight
+  console.log(`[DBG] ${msg}`)
+}
+
+function toggleDebug() {
+  const p = document.getElementById('debug-panel')
+  p.style.display = p.style.display === 'none' ? 'block' : 'none'
+}
+
 // ── Users ─────────────────────────────────────────────────
 async function refreshUsers() {
+  dbg('refreshUsers() called')
   document.getElementById('users-tbody').innerHTML='<tr><td colspan="6" class="empty"><span class="spinner"></span> Loading users…</td></tr>'
-  const res=await window.api.getUsers()
+  dbg('Calling window.api.getUsers()...')
+  let res
+  try {
+    res = await window.api.getUsers()
+    dbg(`getUsers() returned: ok=${res.ok} count=${res.users?.length} error=${res.error||'none'}`, res.ok?'data':'error')
+  } catch(e) {
+    dbg('getUsers() threw exception: '+e.message, 'error')
+    document.getElementById('users-tbody').innerHTML=`<tr><td colspan="6" class="empty">Exception: ${e.message}</td></tr>`
+    return
+  }
   if (!res.ok){
+    dbg('getUsers failed: '+res.error, 'error')
     document.getElementById('users-tbody').innerHTML=`<tr><td colspan="6" class="empty">Error: ${res.error}</td></tr>`
     toast('Error: '+res.error);return
   }
+  dbg(`Got ${res.users.length} users, calling renderUsers()`, 'data')
   users=res.users;renderUsers()
   document.getElementById('last-sync').textContent='Synced '+new Date().toLocaleTimeString()
   document.getElementById('tab-users-count').textContent=users.length
+  dbg('refreshUsers() complete ✓', 'info')
 }
 
 function ipNum(ip){return (ip||'').split('.').reduce((a,b)=>a*256+(+b||0),0)}

@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   // Connection
   connect:           (a)   => ipcRenderer.invoke('connect', a),
   disconnect:        ()    => ipcRenderer.invoke('disconnect'),
-  bulkSetGroup:      (a)   => ipcRenderer.invoke('bulk-set-group', a),
+  // Users
+  getUsers:          ()    => ipcRenderer.invoke('get-users'),
   addUser:           (u)   => ipcRenderer.invoke('add-user', u),
   editUser:          (u)   => ipcRenderer.invoke('edit-user', u),
   deleteUser:        (id)  => ipcRenderer.invoke('delete-user', id),
