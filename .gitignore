@@ -1,2 +1,5 @@
 /dist/win-unpacked
 /node_modules
+dist/builder-debug.yml
+dist/builder-effective-config.yaml
+dist/.icon-ico/icon.ico
