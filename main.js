@@ -116,12 +116,8 @@ ipcMain.handle('get-sessions', async () => {
 ipcMain.handle('get-session-history', async (_, { limit }) => {
   if (!manager) return { ok: false, error: 'Not connected' }
   try {
-    // Race against a 15s timeout so it never hangs the UI
-    const result = await Promise.race([
-      manager.getSessionHistory(limit || 200),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out')), 15000))
-    ])
-    return { ok: true, history: result }
+    const history = await manager.getSessionHistory(limit || 200)
+    return { ok: true, history }
   } catch(err) { return { ok: false, error: err.message } }
 })
 

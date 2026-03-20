@@ -5,7 +5,7 @@ class MikroTikManager {
 
   connect(host, port, username, password) {
     return new Promise((resolve, reject) => {
-      this.conn = new RouterOSAPI({ host, port: parseInt(port)||8728, user: username, password, timeout: 10, keepalive: true })
+      this.conn = new RouterOSAPI({ host, port: parseInt(port)||8728, user: username, password, timeout: 30, keepalive: true })
       this.conn.connect().then(() => resolve()).catch(err => { this.conn = null; reject(new Error(err.message||'Connection failed')) })
     })
   }
@@ -91,23 +91,20 @@ class MikroTikManager {
     return true
   }
 
-  async getSessionHistory(limit = 200) {
-    // Use RouterOS print with a count limit to avoid fetching thousands of records
-    const data = await this.conn.write('/user-manager/session/print',
-      [`=count-only=`, `?#!active`] // get ended sessions only for history
-    ).catch(() => this.conn.write('/user-manager/session/print'))
+  async deleteUser(id) {
+    await this.conn.write('/user-manager/user/remove', [`=.id=${id}`])
+    return true
+  }
 
-    const records = Array.isArray(data) ? data : []
-    return records.slice(0, limit).map(r => ({
+  async getSessionHistory(limit = 200) {
+    const data = await this.conn.write('/user-manager/session/print')
+    return data.slice(0, limit).map(r => ({
       id: r['.id'],
       user: r.user || '',
-      ip: r['user-address'] || '',
-      nasIp: r['nas-ip-address'] || '',
       download: parseInt(r.download || '0'),
       upload: parseInt(r.upload || '0'),
       started: r.started || '',
       ended: r.ended || '',
-      uptime: r.uptime || '',
       active: r.active === 'true',
     }))
   }

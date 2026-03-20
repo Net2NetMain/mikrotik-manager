@@ -295,7 +295,6 @@ mono{font-family:'Courier New',monospace;font-size:12px}
         <option value="none">No group</option>
       </select>
       <button class="btn" onclick="exportCSV()">⬇ CSV</button>
-      <button class="btn" onclick="openBulkGroup()" style="color:var(--info-text);border-color:var(--info-bg)">⚙ Bulk group</button>
       <button class="btn btn-primary" onclick="openAdd()">＋ Add user</button>
     </div>
     <div class="tbl-wrap">
@@ -392,33 +391,6 @@ mono{font-family:'Courier New',monospace;font-size:12px}
         <div>Built for Net2Net / AnySmart network administrators</div>
         <div style="margin-top:8px">Core router test host: <mono>172.19.250.251</mono> (SSH)</div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- Bulk group modal -->
-<div class="modal-overlay" id="bulk-overlay">
-  <div class="modal" style="width:460px">
-    <h2>Bulk change group</h2>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
-      Change the group for multiple users at once. Select which users to update below.
-    </p>
-    <div class="field"><label>Set group to</label>
-      <select id="bulk-group"><option value="Network-Smart">Network-Smart</option><option value="default">default</option></select>
-    </div>
-    <div class="field"><label>Apply to</label>
-      <select id="bulk-scope" onchange="renderBulkPreview()">
-        <option value="all">All users (${users.length})</option>
-        <option value="default-only">Only users currently in "default" group</option>
-        <option value="filtered">Current filtered view only</option>
-      </select>
-    </div>
-    <div id="bulk-preview" style="background:var(--surface2);border-radius:var(--r);padding:10px 12px;font-size:12px;color:var(--muted);margin-bottom:4px;max-height:160px;overflow-y:auto"></div>
-    <div id="bulk-count" style="font-size:12px;color:var(--hint);margin-bottom:4px"></div>
-    <div class="modal-err" id="bulk-err"></div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeBulkModal()">Cancel</button>
-      <button class="btn btn-primary" id="bulk-btn" onclick="applyBulkGroup()">Apply to all</button>
     </div>
   </div>
 </div>
@@ -624,7 +596,7 @@ async function doConnect() {
   document.getElementById('refresh-btn').style.display=''
   document.getElementById('disconnect-btn').style.display=''
   await refreshUsers()
-  loadDashboard() // fire and forget — dashboard loads in background
+  setTimeout(() => loadDashboard(), 500) // slight delay so users load first
 }
 
 function showConnErr(m){const el=document.getElementById('conn-err');el.textContent=m;el.classList.add('show')}
@@ -649,24 +621,19 @@ async function loadDashboard() {
   document.getElementById('dash-grid').innerHTML='<div class="dash-loading" style="grid-column:1/-1"><span class="spinner"></span> Loading dashboard…</div>'
   document.getElementById('dash-stats').innerHTML=''
 
-  // Load sessions and history independently — don't let one block the other
+  // Sequential — node-routeros can only handle one command at a time
   try {
     const sessRes = await window.api.getSessions()
     if (sessRes.ok) {
       sessions = sessRes.sessions
-      renderSessions()
-      updateOnlineDots()
       document.getElementById('tab-sess-count').textContent = sessions.length
     }
   } catch(e) {}
 
-  // History fetch — limit to 200 records to avoid timeout
   try {
     const histRes = await window.api.getSessionHistory({ limit: 200 })
-    if (histRes.ok) { history = histRes.history }
-  } catch(e) {
-    history = []
-  }
+    if (histRes.ok) history = histRes.history
+  } catch(e) { history = [] }
 
   renderDashboard()
 }
@@ -910,62 +877,6 @@ async function deleteUser(id,name){
   toast('User deleted');await refreshUsers()
 }
 
-// ── Bulk group ─────────────────────────────────────────────
-function getBulkTargets() {
-  const scope = document.getElementById('bulk-scope').value
-  if (scope === 'all') return users
-  if (scope === 'default-only') return users.filter(u => !u.group || u.group === 'default')
-  return getFiltered()
-}
-
-function openBulkGroup() {
-  document.getElementById('bulk-err').classList.remove('show')
-  document.getElementById('bulk-btn').disabled = false
-  document.getElementById('bulk-btn').textContent = 'Apply to all'
-  renderBulkPreview()
-  document.getElementById('bulk-overlay').classList.add('open')
-}
-
-function closeBulkModal() { document.getElementById('bulk-overlay').classList.remove('open') }
-
-function renderBulkPreview() {
-  const targets = getBulkTargets()
-  const group = document.getElementById('bulk-group').value
-  document.getElementById('bulk-count').textContent = `${targets.length} users will be updated`
-  document.getElementById('bulk-preview').innerHTML = targets.map(u =>
-    `<div style="padding:2px 0;display:flex;justify-content:space-between">
-      <span>${u.name}</span>
-      <span style="color:var(--hint)">${u.group||'default'} → <span style="color:var(--info-text)">${group}</span></span>
-    </div>`
-  ).join('')
-}
-
-async function applyBulkGroup() {
-  const targets = getBulkTargets()
-  const group = document.getElementById('bulk-group').value
-  if (targets.length === 0) { toast('No users match the selection'); return }
-  if (!confirm(`Change ${targets.length} users to group "${group}"?\n\nThis will update them live on the router.`)) return
-
-  const btn = document.getElementById('bulk-btn')
-  btn.disabled = true
-  btn.innerHTML = '<span class="spinner"></span>Updating…'
-
-  const res = await window.api.bulkSetGroup({ userIds: targets.map(u => u.id), group })
-
-  btn.disabled = false
-  btn.textContent = 'Apply to all'
-
-  if (!res.ok) {
-    const el = document.getElementById('bulk-err')
-    el.textContent = 'Error: ' + res.error; el.classList.add('show')
-    return
-  }
-
-  closeBulkModal()
-  toast(`✓ Updated ${res.done} users to group "${group}"`)
-  await refreshUsers()
-}
-
 // ── CSV Export ─────────────────────────────────────────────
 function exportCSV(){
   const rows=getFiltered()
@@ -1184,10 +1095,10 @@ function esc(s){return (s||'').replace(/'/g,"\\'")}
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2600)}
 
 // ── Close on backdrop / Escape ─────────────────────────────
-;['modal-overlay','test-overlay','graph-overlay','bulk-overlay'].forEach(id=>{
-  document.getElementById(id).addEventListener('click',e=>{if(e.target===document.getElementById(id)){closeModal();closeTestModal();closeGraphModal();closeBulkModal()}})
+;['modal-overlay','test-overlay','graph-overlay'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',e=>{if(e.target===document.getElementById(id)){closeModal();closeTestModal();closeGraphModal()}})
 })
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeTestModal();closeGraphModal();closeBulkModal()}})
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeTestModal();closeGraphModal()}})
 </script>
 </body>
 </html>
